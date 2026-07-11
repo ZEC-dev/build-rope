@@ -8,6 +8,11 @@ void PrintHelp() {
     std::cout << "  -h, --help           显示此帮助信息\n";
     std::cout << "  -p, --path <路径>    设置联想教学系统安装目录（默认: C:\\Program Files (x86)\\Lenovo teaching system）\n";
     std::cout << "  -l, --list           列出所有模块及其当前状态\n";
+    std::cout << "  --save [文件]        保存当前模块状态到配置文件（默认: trainer_config.txt）\n";
+    std::cout << "  --load [文件]        从配置文件加载并应用状态（默认: trainer_config.txt）\n";
+    std::cout << "  --export <文件>      导出当前状态到指定配置文件（同 --save 但必须指定路径）\n";
+    std::cout << "  --import <文件>      从指定配置文件导入并应用状态（同 --load 但必须指定路径）\n";
+    std::cout << "  --admin              检测当前是否以管理员权限运行\n";
     std::cout << "\n模块名:\n";
     std::cout << "  screen-monitor      屏幕监控\n";
     std::cout << "  screen-record       屏幕录制\n";
@@ -32,10 +37,16 @@ void PrintHelp() {
     std::cout << "  trainer screen-monitor on\n";
     std::cout << "  trainer all off\n";
     std::cout << "  trainer ntsd on\n";
+    std::cout << "  trainer --save                      保存到 trainer_config.txt\n";
+    std::cout << "  trainer --load                      从 trainer_config.txt 恢复\n";
+    std::cout << "  trainer --export my_config.txt      导出到指定文件\n";
+    std::cout << "  trainer --import my_config.txt      从指定文件导入\n";
+    std::cout << "  trainer --admin                     检查管理员权限\n";
     std::cout << "\n说明:\n";
     std::cout << "  on  = 启用屏蔽（将模块重命名为 .bak 后缀）\n";
     std::cout << "  off = 关闭屏蔽（将 .bak 后缀还原）\n";
     std::cout << "  部分操作需要管理员权限\n";
+    std::cout << "  配置文件格式：纯文本键值对，1=已屏蔽, 0=正常\n";
 }
 
 void PrintStatus() {
@@ -113,6 +124,10 @@ int main(int argc, char* argv[]) {
     std::string module, action;
     bool showHelp = false;
     bool showList = false;
+    bool showAdmin = false;
+    // 配置操作: ""=无, "save"/"load"/"export"/"import"
+    std::string configOp;
+    std::string configFile;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -123,6 +138,19 @@ int main(int argc, char* argv[]) {
             showList = true;
         } else if ((arg == "-p" || arg == "--path") && i + 1 < argc) {
             trainer::SetPath(argv[++i]);
+        } else if (arg == "--admin") {
+            showAdmin = true;
+        } else if (arg == "--save" || arg == "--load"
+                || arg == "--export" || arg == "--import") {
+            configOp = arg.substr(2);   // 去掉 "--"
+            // export/import 必须带文件参数；save/load 可选
+            if ((configOp == "export" || configOp == "import") && i + 1 < argc) {
+                configFile = argv[++i];
+            } else if ((configOp == "save" || configOp == "load") && i + 1 < argc
+                       && argv[i + 1][0] != '-') {
+                // 下一个参数若不以 '-' 开头则视为文件名
+                configFile = argv[++i];
+            }
         } else if (module.empty()) {
             module = arg;
         } else if (action.empty()) {
@@ -135,9 +163,43 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    if (showAdmin) {
+        if (trainer::IsAdmin()) {
+            std::cout << "当前以管理员权限运行 ✓\n";
+        } else {
+            std::cout << "当前未以管理员权限运行 ✗\n";
+            std::cout << "提示: 部分操作（如驱动控制、NTSD）需要管理员权限\n";
+        }
+        return 0;
+    }
+
     if (showList) {
         PrintStatus();
         return 0;
+    }
+
+    // 配置保存/加载
+    if (!configOp.empty()) {
+        if (configFile.empty()) {
+            configFile = "trainer_config.txt";
+        }
+        if (configOp == "save" || configOp == "export") {
+            int rc = trainer::SaveConfig(configFile);
+            if (rc == 0) {
+                std::cout << "配置已保存到: " << configFile << "\n";
+            } else {
+                std::cerr << "错误: 无法写入配置文件 " << configFile << "\n";
+            }
+            return rc;
+        } else { // load / import
+            int rc = trainer::LoadConfig(configFile);
+            if (rc == 0) {
+                std::cout << "配置已从 " << configFile << " 加载并应用\n";
+            } else {
+                std::cerr << "错误: 无法读取配置文件 " << configFile << "\n";
+            }
+            return rc;
+        }
     }
 
     if (!module.empty() && !action.empty()) {

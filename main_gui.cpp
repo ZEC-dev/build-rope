@@ -118,11 +118,23 @@ public:
         bottomLayout->setContentsMargins(8, 4, 8, 4);
         QPushButton* blockAllBtn   = new QPushButton("一键全屏蔽");
         QPushButton* restoreAllBtn = new QPushButton("一键全恢复");
+        QPushButton* saveCfgBtn    = new QPushButton("保存配置");
+        QPushButton* loadCfgBtn    = new QPushButton("加载配置");
+        QPushButton* exportCfgBtn  = new QPushButton("导出配置");
+        QPushButton* importCfgBtn  = new QPushButton("导入配置");
         bottomLayout->addWidget(blockAllBtn);
         bottomLayout->addWidget(restoreAllBtn);
         bottomLayout->addStretch();
+        bottomLayout->addWidget(saveCfgBtn);
+        bottomLayout->addWidget(loadCfgBtn);
+        bottomLayout->addWidget(exportCfgBtn);
+        bottomLayout->addWidget(importCfgBtn);
         connect(blockAllBtn,   &QPushButton::clicked, this, &MainWindow::onBlockAll);
         connect(restoreAllBtn, &QPushButton::clicked, this, &MainWindow::onRestoreAll);
+        connect(saveCfgBtn,    &QPushButton::clicked, this, &MainWindow::onSaveConfig);
+        connect(loadCfgBtn,    &QPushButton::clicked, this, &MainWindow::onLoadConfig);
+        connect(exportCfgBtn,  &QPushButton::clicked, this, &MainWindow::onExportConfig);
+        connect(importCfgBtn,  &QPushButton::clicked, this, &MainWindow::onImportConfig);
 
         logEdit_ = new QPlainTextEdit;
         logEdit_->setReadOnly(true);
@@ -146,6 +158,15 @@ public:
 
         // 应用初始路径
         trainer::SetPath(pathEdit_->text().toStdString());
+
+        // 管理员权限检测
+        if (trainer::IsAdmin()) {
+            statusBar()->showMessage("就绪 [管理员权限]", 5000);
+            log("权限检测: 以管理员权限运行");
+        } else {
+            statusBar()->showMessage("就绪 [非管理员 - 部分功能受限]", 5000);
+            log("权限检测: 未以管理员权限运行，驱动控制/NTSD 等功能可能不可用");
+        }
     }
 
 private:
@@ -385,6 +406,72 @@ private:
         int rc = trainer::All(false);
         log(QString("===== 一键全恢复结束，rc=%1 =====").arg(rc));
         refreshAll();
+    }
+
+    // -------------------------------------------------------------------------
+    //  配置保存 / 加载 / 导出 / 导入
+    // -------------------------------------------------------------------------
+    void onSaveConfig() {
+        int rc = trainer::SaveConfig("trainer_config.txt");
+        if (rc == 0) {
+            log("配置已保存到 trainer_config.txt");
+            statusBar()->showMessage("配置已保存", 3000);
+        } else {
+            log("错误: 无法写入 trainer_config.txt");
+            QMessageBox::warning(this, "保存失败", "无法写入配置文件 trainer_config.txt");
+        }
+    }
+
+    void onLoadConfig() {
+        if (QMessageBox::question(this, "确认",
+                "确定从 trainer_config.txt 加载并应用配置？\n当前状态将被覆盖。")
+            != QMessageBox::Yes) return;
+        int rc = trainer::LoadConfig("trainer_config.txt");
+        if (rc == 0) {
+            // 同步路径到输入框
+            pathEdit_->setText(QString::fromStdString(trainer::path));
+            log("配置已从 trainer_config.txt 加载并应用");
+            statusBar()->showMessage("配置已加载", 3000);
+            refreshAll();
+        } else {
+            log("错误: 无法读取 trainer_config.txt");
+            QMessageBox::warning(this, "加载失败", "无法读取配置文件 trainer_config.txt");
+        }
+    }
+
+    void onExportConfig() {
+        QString fn = QFileDialog::getSaveFileName(
+            this, "导出配置到文件", "trainer_config.txt",
+            "配置文件 (*.txt);;所有文件 (*.*)");
+        if (fn.isEmpty()) return;
+        int rc = trainer::SaveConfig(fn.toStdString());
+        if (rc == 0) {
+            log(QString("配置已导出到 %1").arg(fn));
+            statusBar()->showMessage("配置已导出", 3000);
+        } else {
+            log(QString("错误: 无法写入 %1").arg(fn));
+            QMessageBox::warning(this, "导出失败", "无法写入所选文件");
+        }
+    }
+
+    void onImportConfig() {
+        QString fn = QFileDialog::getOpenFileName(
+            this, "从文件导入配置", "",
+            "配置文件 (*.txt);;所有文件 (*.*)");
+        if (fn.isEmpty()) return;
+        if (QMessageBox::question(this, "确认",
+                QString("确定从 %1 导入配置？\n当前状态将被覆盖。").arg(fn))
+            != QMessageBox::Yes) return;
+        int rc = trainer::LoadConfig(fn.toStdString());
+        if (rc == 0) {
+            pathEdit_->setText(QString::fromStdString(trainer::path));
+            log(QString("配置已从 %1 导入并应用").arg(fn));
+            statusBar()->showMessage("配置已导入", 3000);
+            refreshAll();
+        } else {
+            log(QString("错误: 无法读取 %1").arg(fn));
+            QMessageBox::warning(this, "导入失败", "无法读取所选文件");
+        }
     }
 };
 

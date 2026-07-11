@@ -45,6 +45,26 @@ namespace trainer {
         return file.good();
     }
 
+    // ---------------------------------------------------------------------------
+    //  管理员权限检测
+    //      通过 OpenProcessToken + GetTokenInformation(TokenElevation) 判断当前
+    //      进程是否以管理员（提升）权限运行。返回 true 表示已提权。
+    // ---------------------------------------------------------------------------
+    bool IsAdmin(){
+        BOOL fReturn = FALSE;
+        HANDLE hToken = NULL;
+        if(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)){
+            TOKEN_ELEVATION Elevation;
+            DWORD cbSize = sizeof(TOKEN_ELEVATION);
+            if(GetTokenInformation(hToken, TokenElevation,
+                                   &Elevation, sizeof(Elevation), &cbSize)){
+                fReturn = Elevation.TokenIsElevated;
+            }
+        }
+        if(hToken) CloseHandle(hToken);
+        return fReturn == TRUE;
+    }
+
     // 通用：屏蔽/恢复一个 .dll 模块
     int ToggleDll(std::string Name, bool on){
         if(on)
@@ -311,6 +331,116 @@ namespace trainer {
         ProcessProtect(on);
         ExamSendExaminationWnd(on);
         return ScreenMonitorLib(on);
+    }
+
+    // ---------------------------------------------------------------------------
+    //  13. 配置保存 / 加载
+    //      配置文件采用纯文本键值对格式（默认 trainer_config.txt）：
+    //          # 注释行
+    //          path=C:\Program Files (x86)\Lenovo teaching system
+    //          screen-monitor=1        （1=已屏蔽, 0=正常）
+    //          ...
+    //      ntsd 为运行时进程冻结状态，不写入配置。
+    //
+    //      SaveConfig: 查询所有模块当前状态并写入文件，同时记录 path。
+    //      LoadConfig: 读取文件，先设置 path，再按记录的状态逐一应用。
+    //      返回 0 表示成功，非 0 表示出错。
+    // ---------------------------------------------------------------------------
+
+    // 模块描述条目，供配置遍历使用
+    struct ConfigEntry {
+        std::string key;          // 配置键名（与 CLI 模块名一致）
+        std::string type;         // "dll" / "exe" / "sys"
+        std::string fileBase;     // core.hpp 中实际文件名
+    };
+
+    // 所有可持久化的模块（不含 ntsd，因其为运行时状态）
+    const std::vector<ConfigEntry> kConfigModules = {
+        {"screen-monitor",  "dll", "ScreenMonitorLib"},
+        {"screen-record",   "dll", "ScreenRecord"},
+        {"screen-sender",   "dll", "ScreenSender"},
+        {"audio-render",    "dll", "AudioRender"},
+        {"audio-sender",    "dll", "AudioSender"},
+        {"audio-video",     "exe", "AudioOrVideoBroadcast"},
+        {"file-transfer",   "dll", "FileTranferServer"},
+        {"hook",            "dll", "HookLib"},
+        {"lock-keyboard",   "dll", "LockKeyboard"},
+        {"black-silent",    "exe", "BlackSlient"},
+        {"discuss-online",  "dll", "DiscussOnlineLogic"},
+        {"batch-login",     "dll", "BatchLogin"},
+        {"exam",            "dll", "ExamSendExaminationWnd"},
+        {"process-protect", "exe", "ProcessProtect"},
+        {"inspect",         "sys", "inspect"},
+    };
+
+    // 查询某模块当前是否被屏蔽（true=已屏蔽）
+    bool IsModuleBlocked(const ConfigEntry& e){
+        if(e.type == "dll") return IsDllBlocked(e.fileBase);
+        if(e.type == "exe") return IsExeBlocked(e.fileBase);
+        if(e.type == "sys") return IsSysBlocked(e.fileBase);
+        return false;
+    }
+
+    // 保存当前状态到配置文件，默认文件名 trainer_config.txt
+    int SaveConfig(std::string filename = "trainer_config.txt"){
+        std::ofstream fout(filename.c_str());
+        if(!fout.good()) return -1;   //无法创建文件
+
+        fout << "# LenovoOnlineClassTrainer 配置文件\n";
+        fout << "# 格式：模块名=状态 (1=已屏蔽, 0=正常)\n";
+        fout << "# 生成时间: " << time(NULL) << "\n";
+        fout << "path=" << path << "\n";
+        for(const auto& e : kConfigModules){
+            fout << e.key << "=" << (IsModuleBlocked(e) ? 1 : 0) << "\n";
+        }
+        fout.close();
+        return 0;
+    }
+
+    // 从配置文件加载并应用状态，默认文件名 trainer_config.txt
+    int LoadConfig(std::string filename = "trainer_config.txt"){
+        std::ifstream fin(filename.c_str());
+        if(!fin.good()) return -1;    //文件不存在
+
+        std::string line;
+        while(std::getline(fin, line)){
+            // 去掉行尾回车
+            if(!line.empty() && line.back() == '\r') line.pop_back();
+            // 跳过空行与注释
+            if(line.empty() || line[0] == '#') continue;
+
+            size_t eq = line.find('=');
+            if(eq == std::string::npos) continue;
+
+            std::string key = line.substr(0, eq);
+            std::string val = line.substr(eq + 1);
+
+            if(key == "path"){
+                SetPath(val);
+                continue;
+            }
+
+            bool wantBlock = (val == "1" || val == "true" || val == "yes");
+            // 用 ExecuteModule 风格逐一应用
+            if      (key == "screen-monitor")  ScreenMonitorLib(wantBlock);
+            else if (key == "screen-record")   ScreenRecord(wantBlock);
+            else if (key == "screen-sender")   ScreenSender(wantBlock);
+            else if (key == "screen-broadcast")ScreenBroadcast(wantBlock);
+            else if (key == "audio-render")    AudioRender(wantBlock);
+            else if (key == "audio-sender")    AudioSender(wantBlock);
+            else if (key == "audio-video")     AudioOrVideoBroadcast(wantBlock);
+            else if (key == "file-transfer")   FileTransfer(wantBlock);
+            else if (key == "hook")            Hook(wantBlock);
+            else if (key == "lock-keyboard")   LockKeyboard(wantBlock);
+            else if (key == "black-silent")    BlackSlient(wantBlock);
+            else if (key == "discuss-online")  DiscussOnline(wantBlock);
+            else if (key == "batch-login")     BatchLogin(wantBlock);
+            else if (key == "exam")            ExamSendExaminationWnd(wantBlock);
+            else if (key == "process-protect") ProcessProtect(wantBlock);
+            else if (key == "inspect")         Inspect(wantBlock);
+        }
+        fin.close();
+        return 0;
     }
 
     // ---------------------------------------------------------------------------
