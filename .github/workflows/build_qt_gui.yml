@@ -23,35 +23,36 @@ jobs:
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
 
-    # 使用正确的 qmake 方式构建
-    - name: Build GUI
+    - name: Build GUI with MSVC
       run: |
-        # 创建构建目录
-        mkdir build-gui
-        cd build-gui
+        # 设置 Qt 路径变量
+        $QT_DIR = "$env:QT_ROOT_DIR"
+        $QT_INCLUDE = "$QT_DIR\include"
+        $QT_LIB = "$QT_DIR\lib"
         
-        # 方法1: 使用 qmake -project 生成项目文件
-        qmake -project "QT+=widgets" "CONFIG+=c++17" -o trainer_gui.pro ..
+        # 创建输出目录
+        mkdir output -Force
         
-        # 修改生成的 .pro 文件，明确指定源文件和目标
-        echo "SOURCES = ../main_gui.cpp" > temp.pro
-        echo "HEADERS = ../core.hpp" >> temp.pro
-        echo "TARGET = trainer_gui" >> temp.pro
-        echo "TEMPLATE = app" >> temp.pro
-        echo "QT += widgets core gui" >> temp.pro
-        echo "CONFIG += c++17" >> temp.pro
-        echo "INCLUDEPATH += .." >> temp.pro
-        # 合并到原有的 .pro 文件（或者直接覆盖）
-        type temp.pro > trainer_gui.pro
+        # 编译 main_gui.cpp
+        cl /EHsc /std:c++17 /MD /O2 /DUNICODE /D_UNICODE /DWIN32 /DWIN64 /DNDEBUG `
+           /I"$QT_INCLUDE" `
+           /I"$QT_INCLUDE\QtCore" `
+           /I"$QT_INCLUDE\QtGui" `
+           /I"$QT_INCLUDE\QtWidgets" `
+           /I"." `
+           main_gui.cpp `
+           /link /LIBPATH:"$QT_LIB" `
+           Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib `
+           advapi32.lib user32.lib shell32.lib `
+           /OUT:output\trainer_gui.exe
         
-        # 生成 Makefile
-        qmake trainer_gui.pro
-        # 编译
-        nmake release
-        
-        # 创建输出目录并复制文件
-        mkdir ..\..\output
-        copy release\trainer_gui.exe ..\..\output\
+        # 显示编译结果
+        if (Test-Path "output\trainer_gui.exe") {
+            Write-Host "Build successful! Output size: $((Get-Item output\trainer_gui.exe).Length) bytes"
+        } else {
+            Write-Host "Build failed!" -ForegroundColor Red
+            exit 1
+        }
 
     - name: Deploy Qt Dependencies
       run: |
