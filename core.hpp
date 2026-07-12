@@ -1,7 +1,18 @@
 #pragma once
-#include<bits/stdc++.h>
-#include<windows.h>
-#include<time.h>
+
+// 标准库头文件
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <cstdlib>
+#include <cstdio>
+#include <ctime>
+#include <iomanip>
+
+// Windows API
+#include <windows.h>
+#include <time.h>
 
 // =============================================================================
 //  trainer  ——  联想教学系统 (Lenovo Teaching System) 模块开关工具
@@ -154,7 +165,7 @@ namespace trainer {
     }
 
     // ---------------------------------------------------------------------------
-    //  4. 系统钩子 / 键盘锁定（实现“锁屏”、“禁止学生操作”）
+    //  4. 系统钩子 / 键盘锁定（实现"锁屏"、"禁止学生操作"）
     // ---------------------------------------------------------------------------
 
     int HookLib(bool on){
@@ -241,7 +252,7 @@ namespace trainer {
     //  10. 驱动（inspect.sys / inspect.inf）
     //      底层监控与键盘输入拦截，属于系统级保护。钩子(LockKeyboard 等)依赖它。
     //
-    //      注意：仅重命名 .sys 文件只能阻止“下次开机”加载，对已加载到内存的
+    //      注意：仅重命名 .sys 文件只能阻止"下次开机"加载，对已加载到内存的
     //      驱动无效。要真正禁用一个正在运行的驱动，必须停止并禁用其 Windows
     //      服务。因此提供两个层次：
     //          InspectFile(on)    —— 仅重命名文件（下次开机生效）
