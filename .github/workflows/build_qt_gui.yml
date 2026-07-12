@@ -27,22 +27,16 @@ jobs:
       run: |
         # 显示 Qt 路径信息
         Write-Host "QT_ROOT_DIR: $env:QT_ROOT_DIR"
-        Write-Host "Contents of QT_ROOT_DIR:"
-        dir $env:QT_ROOT_DIR
         
         # 设置路径
-        $QT_BIN = "$env:QT_ROOT_DIR\bin"
         $QT_INCLUDE = "$env:QT_ROOT_DIR\include"
         $QT_LIB = "$env:QT_ROOT_DIR\lib"
-        
-        # 添加到 PATH
-        $env:PATH = "$QT_BIN;$env:PATH"
         
         # 创建输出目录
         mkdir output -Force
         
-        # 编译（使用更完整的参数）
-        cl /nologo /EHsc /std:c++17 /MD /O2 `
+        # 编译（添加 /Zc:__cplusplus 选项）
+        cl /nologo /EHsc /std:c++17 /Zc:__cplusplus /MD /O2 `
            /DUNICODE /D_UNICODE /DWIN32 /DWIN64 /DNDEBUG `
            /I"$QT_INCLUDE" `
            /I"$QT_INCLUDE\QtCore" `
@@ -68,9 +62,6 @@ jobs:
       run: |
         cd output
         windeployqt trainer_gui.exe --release --no-translations
-        Write-Host "Deployment completed!"
-        Write-Host "Files in output:"
-        dir
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
