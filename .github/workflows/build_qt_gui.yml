@@ -1,6 +1,5 @@
 name: Build Qt GUI Version
 
-# 触发条件：当你推送代码到 main 分支，或手动触发时运行
 on:
   push:
     branches: [ "main" ]
@@ -8,15 +7,12 @@ on:
 
 jobs:
   build-gui:
-    # 选择最新的 Windows 云主机
     runs-on: windows-latest
 
     steps:
-    # 1. 拉取你的项目代码
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 2. 云端安装 Qt 6.6.3 (MSVC 2019 64位版)
     - name: Install Qt
       uses: jurplel/install-qt-action@v4
       with:
@@ -24,36 +20,44 @@ jobs:
         arch: 'win64_msvc2019_64'
         cache: true
 
-    # 3. 配置 Visual Studio 的 MSVC 编译环境
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
 
-    # 4. 为 Qt GUI 项目生成工程文件并编译
+    # 使用正确的 qmake 方式构建
     - name: Build GUI
       run: |
         # 创建构建目录
         mkdir build-gui
         cd build-gui
-        # 使用 qmake 生成 Makefile (指定你的 GUI 源文件)
-        qmake .. -project "QT+=widgets" "CONFIG+=c++11" -o trainer_gui.pro
-        # 将 main_gui.cpp 添加为唯一的源文件
-        echo "SOURCES = ../main_gui.cpp" >> trainer_gui.pro
-        # 生成最终 Makefile
+        
+        # 方法1: 使用 qmake -project 生成项目文件
+        qmake -project "QT+=widgets" "CONFIG+=c++17" -o trainer_gui.pro ..
+        
+        # 修改生成的 .pro 文件，明确指定源文件和目标
+        echo "SOURCES = ../main_gui.cpp" > temp.pro
+        echo "HEADERS = ../core.hpp" >> temp.pro
+        echo "TARGET = trainer_gui" >> temp.pro
+        echo "TEMPLATE = app" >> temp.pro
+        echo "QT += widgets core gui" >> temp.pro
+        echo "CONFIG += c++17" >> temp.pro
+        echo "INCLUDEPATH += .." >> temp.pro
+        # 合并到原有的 .pro 文件（或者直接覆盖）
+        type temp.pro > trainer_gui.pro
+        
+        # 生成 Makefile
         qmake trainer_gui.pro
-        # 开始编译 (Release 模式)
+        # 编译
         nmake release
-        # 将生成的 exe 文件复制到根目录下的 output 文件夹，方便后续打包
-        cd release
-        mkdir ../../../output
-        copy trainer_gui.exe ..\..\..\output\
+        
+        # 创建输出目录并复制文件
+        mkdir ..\..\output
+        copy release\trainer_gui.exe ..\..\output\
 
-    # 5. 使用 windeployqt 自动复制所有依赖的 Qt .dll 文件
     - name: Deploy Qt Dependencies
       run: |
         cd output
         windeployqt trainer_gui.exe --release --no-translations
 
-    # 6. 将最终可运行的文件夹打包并上传，供你下载
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
