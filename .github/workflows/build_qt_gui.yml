@@ -1,70 +1,150 @@
-name: Build Qt GUI Version
+name: Build and Release
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
-jobs:
-  build-gui:
-    runs-on: windows-latest
+env:
+  PROJECT_NAME: LenovoOnlineClassTrainer
 
+jobs:
+  build-cli:
+    name: Build CLI (main.cpp)
+    runs-on: windows-latest
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Qt
-      uses: jurplel/install-qt-action@v4
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Compile CLI
+      run: |
+        cl /EHsc /std:c++11 main.cpp /Fe:trainer.exe
+        if exist trainer.exe (echo CLI build success) else (exit 1)
+
+    - name: Upload CLI artifact
+      uses: actions/upload-artifact@v4
       with:
-        version: '6.6.3'
-        arch: 'win64_msvc2019_64'
-        cache: true
+        name: trainer-cli
+        path: trainer.exe
+
+  build-gui:
+    name: Build GUI (main_gui.cpp)
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
 
-    - name: Build GUI with MSVC
-      run: |
-        # 显示 Qt 路径信息
-        Write-Host "QT_ROOT_DIR: $env:QT_ROOT_DIR"
-        
-        # 设置路径
-        $QT_INCLUDE = "$env:QT_ROOT_DIR\include"
-        $QT_LIB = "$env:QT_ROOT_DIR\lib"
-        
-        # 创建输出目录
-        mkdir output -Force
-        
-        # 编译（添加 /Zc:__cplusplus 选项）
-        cl /nologo /EHsc /std:c++17 /Zc:__cplusplus /MD /O2 `
-           /DUNICODE /D_UNICODE /DWIN32 /DWIN64 /DNDEBUG `
-           /I"$QT_INCLUDE" `
-           /I"$QT_INCLUDE\QtCore" `
-           /I"$QT_INCLUDE\QtGui" `
-           /I"$QT_INCLUDE\QtWidgets" `
-           /I"." `
-           main_gui.cpp `
-           /link /NOLOGO /LIBPATH:"$QT_LIB" `
-           Qt6Core.lib Qt6Gui.lib Qt6Widgets.lib `
-           advapi32.lib user32.lib shell32.lib `
-           /OUT:output\trainer_gui.exe
-        
-        # 检查结果
-        if (Test-Path "output\trainer_gui.exe") {
-            Write-Host "Build successful!" -ForegroundColor Green
-            Write-Host "File size: $((Get-Item output\trainer_gui.exe).Length / 1KB) KB"
-        } else {
-            Write-Host "Build failed!" -ForegroundColor Red
-            exit 1
-        }
+    - name: Setup Qt
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '5.15.2'
+        host: 'windows'
+        target: 'desktop'
+        arch: 'win64_msvc2019_64'
+        modules: 'qt5compat'
+        cache: true
 
-    - name: Deploy Qt Dependencies
+    - name: Build GUI with qmake
       run: |
-        cd output
-        windeployqt trainer_gui.exe --release --no-translations
+        qmake -project "QT+=widgets" "CONFIG+=c++11" -o trainer_gui.pro
+        echo "SOURCES += main_gui.cpp" >> trainer_gui.pro
+        echo "HEADERS += core.hpp" >> trainer_gui.pro
+        qmake trainer_gui.pro
+        nmake release
 
-    - name: Upload Artifact
+    - name: Deploy Qt dependencies
+      run: |
+        windeployqt release\trainer_gui.exe --no-translations --no-opengl-sw
+        if exist release\trainer_gui.exe (echo GUI build success) else (exit 1)
+
+    - name: Upload GUI artifact
       uses: actions/upload-artifact@v4
       with:
-        name: LenovoTrainer-GUI-Windows
-        path: output/
+        name: trainer-gui
+        path: release/
+
+  release:
+    name: Create Release Package
+    needs: [build-cli, build-gui]
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download CLI artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: trainer-cli
+        path: ./package/
+
+    - name: Download GUI artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: trainer-gui
+        path: ./package/gui/
+
+    - name: Copy additional files
+      run: |
+        copy LICENSE package\
+        echo "README.md copied to package" > package\README.txt
+        
+    - name: Create ZIP package
+      run: |
+        cd package
+        7z a ../${{ env.PROJECT_NAME }}-${{ github.ref_name }}-windows.zip *
+        
+    - name: Upload package as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-package
+        path: ${{ env.PROJECT_NAME }}-${{ github.ref_name }}-windows.zip
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          ${{ env.PROJECT_NAME }}-${{ github.ref_name }}-windows.zip
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test:
+    name: Test Build
+    needs: [build-cli, build-gui]
+    runs-on: windows-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Download CLI artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: trainer-cli
+        path: ./test/
+
+    - name: Download GUI artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: trainer-gui
+        path: ./test/gui/
+
+    - name: Verify executables
+      run: |
+        if exist test\trainer.exe (echo CLI executable found)
+        if exist test\gui\trainer_gui.exe (echo GUI executable found)
+        echo "Test completed successfully"

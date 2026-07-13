@@ -11,6 +11,8 @@
 - 支持 NTSD 调试器冻结/恢复运行中的学生端进程
 - 同时提供 **CLI** 和 **GUI** 两种使用方式
 - 实时状态查询、颜色指示、操作日志
+- 管理员权限自检
+- 配置导入/导出/保存/加载（`trainer_config.txt`）
 
 ## 文件结构
 
@@ -57,6 +59,23 @@ trainer.exe all off
 # 冻结/恢复学生端进程
 trainer.exe ntsd on
 trainer.exe ntsd off
+
+# 检查是否以管理员权限运行
+trainer.exe --admin
+
+# 保存当前配置到文件（默认 trainer_config.txt）
+trainer.exe --save
+trainer.exe --save my_config.txt
+
+# 从文件加载配置并应用
+trainer.exe --load
+trainer.exe --load my_config.txt
+
+# 导出配置（只保存，不修改系统）
+trainer.exe --export backup.txt
+
+# 导入配置并应用
+trainer.exe --import backup.txt
 ```
 
 #### 编译（Windows + MinGW）
@@ -73,7 +92,9 @@ cl /EHsc /std:c++11 main.cpp /Fe:trainer.exe
 
 ### 2. GUI 图形界面（main_gui.cpp）
 
-基于 Qt5 / Qt6，提供分类选项卡、颜色状态指示、路径设置、实时刷新、操作日志。
+基于 Qt5 / Qt6，提供分类选项卡、颜色状态指示、路径设置、实时刷新、操作日志，以及配置保存/加载/导出/导入按钮。
+
+> 安装 Qt 时若使用开源版本，需同意 GNU (L)GPL 开源义务。商用请购买商业许可。
 
 #### 编译（Windows + Qt MinGW）
 
@@ -94,6 +115,19 @@ windeployqt trainer_gui.exe
 ```
 
 > 编译时 main.cpp 和 main_gui.cpp 二选一，不要同时链接。
+
+#### 常见编译问题
+
+**`fatal error C1083: Cannot open include file: 'main_gui.moc'`**
+
+`main_gui.cpp` 末尾包含 `#include "main_gui.moc"`，需要先让 Qt 的 **moc（Meta-Object Compiler）** 处理该文件。使用 `qmake` / CMake 的 automoc 会自动生成；若用裸 `cl.exe` 直接编译则找不到该文件。
+
+```cmd
+# 推荐：让 qmake 生成 Makefile，自动处理 moc
+qmake -project "QT+=widgets" "CONFIG+=c++11"
+qmake
+nmake release   # 或 mingw32-make
+```
 
 ## 工作原理
 
